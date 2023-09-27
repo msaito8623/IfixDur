@@ -10,7 +10,7 @@ import time
 # from multiprocessing import Pool
 from pathlib import Path
 
-rdir = './'
+rdir = '.'
 idir = '{}/RawData'.format(rdir)
 odir = '{}/ProcessedData'.format(rdir)
 
