@@ -51,6 +51,11 @@ import pandas as pd
 inputPath = '../RawData/CGN_alignment_comp-o_nl/'
 outputPath = '../DataProcessed/cgn_alignments_comp-o_nl.pkl'
 
+### Note: adjust script so that it takes input and outputh as arguments provided by the command line. Then script can be applied to vl component too ###
+#inputPath = '../RawData/CGN_alignment_comp-o_vl/'
+#outputPath = '../DataProcessed/cgn_alignments_comp-o_vl.pkl'
+########################################################################################################################################################
+
 # get all files
 onlyfiles = [os.path.join(inputPath,f) for f in os.listdir(inputPath) if os.path.isfile(os.path.join(inputPath, f))]
 onlyfiles[:10]
