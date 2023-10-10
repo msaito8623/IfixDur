@@ -1,5 +1,5 @@
 # import copy
-# import numpy as np
+import numpy as np
 # import os
 import pandas as pd
 # import pyldl.mapping as lmap
@@ -155,6 +155,8 @@ def add_MorPoS (gml):
 def fix_ambiguous_interfixes (gml):
     gml = fix_kinder(gml)
     gml = fix_arbeiter(gml)
+    gml = fix_bauern(gml)
+    gml = fix_kohlen(gml)
     return gml
 
 def fix_kinder (gml):
@@ -172,6 +174,28 @@ def fix_arbeiter (gml):
     gml.loc[pos, 'MorPoS'] = gml.loc[pos,'MorPoS'].str.replace('^V \# N\|V\.', 'V # N|N.N', regex=True)
     return gml
 
+def fix_bauern (gml):
+    pos = gml.MorOrtho.str.contains('^Bauernfang', regex=True)
+    gml.loc[pos, 'Mor'] = gml.loc[pos,'Mor'].str.replace('(Bauernfang)[N]', '(Bauer)[N] # (n)[V|N.V] # (fang)[V]', regex=False)
+    gml.loc[pos, 'MorOrtho'] = gml.loc[pos,'MorOrtho'].str.replace('^Bauernfang', 'Bauer # n # fang', regex=True)
+    gml.loc[pos, 'MorPoS'] = gml.loc[pos,'MorPoS'].str.replace('^N', 'N # V|N.V # V', regex=True)
+    return gml
+
+def fix_kohlen (gml):
+    # 1
+    pos = gml.MorOrtho.str.contains('^Kohleh', regex=True)
+    gml.loc[pos, 'Mor'] = gml.loc[pos,'Mor'].str.replace('(Kohlehydrat)[N]', '(Kohle)[N] # (Hydrat)[N]', regex=False)
+    gml.loc[pos, 'MorOrtho'] = gml.loc[pos,'MorOrtho'].str.replace('^Kohlehydrat', 'Kohle # Hydrat', regex=True)
+    gml.loc[pos, 'MorPoS'] = gml.loc[pos,'MorPoS'].str.replace('N', 'N # N', regex=True)
+    # 2
+    pos = gml.MorOrtho.str.contains('^Kohlen[ds]', regex=True)
+    gml.loc[pos, 'Mor'] = gml.loc[pos,'Mor'].str.replace('^\(Kohlen([a-z]+)\)\[N\]$', '(Kohle)[N] # (n)[N|N.N] # (\\1)[N]', regex=True).str.replace('dioxyd','Dioxyd',regex=False).str.replace('saeure','Saeure',regex=False)
+    gml.loc[pos, 'MorOrtho'] = gml.loc[pos,'Mor'].str.findall('(?<=\()[A-Za-z]+?(?=\))').apply(' # '.join)
+    gml.loc[pos, 'MorPoS'] = gml.loc[pos,'Mor'].str.findall('(?<=\[)[A-Za-z\\|\\.]+?(?=\])').apply(' # '.join)
+    return gml
+
+
+
 @measure_time
 def add_MorCat (gml):
     gml['MorCat'] = gml.MorPoS
@@ -185,35 +209,38 @@ def add_MorCat (gml):
     return gml
 
 @measure_time
+def fix_MorCat (gml):
+    # 1 (No suffix can directly follow an interfix)
+    gml['MorCat'] = gml.MorCat.str.replace('interfix # suffix', 'suffix # suffix', regex=False)
+    # 2 ("chen" from interfix to suffix)
+    gml.loc[gml.WordOrtho=='Haendchenhalten', 'MorCat'] = gml.loc[gml.WordOrtho=='Haendchenhalten', 'MorCat'].str.replace('interfix', 'suffix', regex=False)
+    # 3 (interfix 'r', e.g., 'woran')
+    # gml.loc[gml.MorPoS.str.contains('[BC]\|B\.[BP]', regex=True), 'MorCat'] = gml.loc[gml.MorPoS.str.contains('[BC]\|B\.[BP]', regex=True), 'MorCat'].str.replace('stem # interfix # stem', 'stem # (ifix) # stem', regex=False)
+    # 4 ("ung" is somehow categorized as an interfix, fixed to a suffix)
+    gml.loc[gml.WordOrtho=='Zurueckbehaltungsrecht', 'MorCat'] = gml.loc[gml.WordOrtho=='Zurueckbehaltungsrecht', 'MorCat'].str.replace('interfix # interfix', 'suffix # interfix', regex=False)
+    # 5 ("ver" in "ein-ver-" was categorized as interfix. Fixed to prefix.)
+    gml.loc[gml.WordOrtho.isin(pd.Series(['einverleiben', 'Einverleibung'])), 'MorCat'] = gml.loc[gml.WordOrtho.isin(pd.Series(['einverleiben', 'Einverleibung'])), 'MorCat'].str.replace('interfix', 'prefix', regex=False)
+    # 6 (interfix 't', e.g., meinetwegen)
+    # gml.loc[gml.MorOrtho.str.contains('# t # (?:wegen|woll|halb|gross)', regex=True),'MorCat'] = gml.loc[gml.MorOrtho.str.contains('# t # (?:wegen|woll|halb|gross)', regex=True),'MorCat'].str.replace('interfix', 'suffix', regex=False)
+    # 7 (Multiple interfixes)
+    gml['MorCat'] = gml.MorCat.str.replace('interfix', '(ifix)', n=-1, regex=False)
+    gml['MorCat'] = gml.MorCat.str.replace('(ifix)', 'interfix', n=1,  regex=False)
+    return gml
+
+@measure_time
 def add_LeftOrtho_IfixOrtho_RightOrtho_forNullInterfixCompounds (gml):
     gml['MorCat2'] = gml.MorCat.copy()
     pos0 = gml.MorCat2.str.count('stem')>1
     pos1 = ~gml.MorCat2.str.contains('interfix', regex=False)
     pos  = pos0 & pos1
-    gml.loc[pos, 'MorCat2'] = gml.loc[pos, 'MorCat2'].str.replace('prefix','p').str.replace('suffix','s').str.replace('interfix','i').str.replace('stem','T').str.replace(' # ', '')
+    assert set([ j for i in gml.loc[pos, 'MorCat2'].str.split(' # ') for j in i ])=={'prefix','stem','suffix'}
+    gml.loc[pos, 'MorCat2'] = gml.loc[pos, 'MorCat2'].str.replace('prefix','p').str.replace('suffix','s').str.replace('stem','T').str.replace(' # ', '', regex=False)
+    assert set([ j for i in gml.loc[pos, 'MorCat2'] for j in i ])=={'T','p','s'}
     gml['rightpos'] = gml.MorCat2.apply(lambda x: len(re.findall('p*Ts*', x)[0]) if 'T' in x else -1 )
-    gml['LeftOrtho'] = gml.apply(lambda x: ''.join(x.MorOrtho.split(' # ')[:x.rightpos]) if x.rightpos!=-1 else '', axis=1)
+    gml['LeftOrtho'] = gml.apply(lambda x: ''.join(x.MorOrtho.split(' # ')[:x.rightpos]) if x.rightpos!=-1 else '', axis=1).str.lower()
     gml['IfixOrtho'] = ''
-    gml['RightOrtho'] = gml.apply(lambda x: ''.join(x.MorOrtho.split(' # ')[x.rightpos:]) if x.rightpos!=-1 else '', axis=1)
+    gml['RightOrtho'] = gml.apply(lambda x: ''.join(x.MorOrtho.split(' # ')[x.rightpos:]) if x.rightpos!=-1 else '', axis=1).str.lower()
     gml = gml.drop(columns=['MorCat2','rightpos'])
-    return gml
-
-@measure_time
-def fix_MorCat (gml):
-    gml['MorCat'] = gml.MorCat.str.replace('interfix', '(ifix)', n=-1, regex=False)
-    gml['MorCat'] = gml.MorCat.str.replace('(ifix)', 'interfix', n=1,  regex=False)
-    # 1
-    gml['MorCat'] = gml.MorCat.str.replace('interfix # suffix', 'suffix # suffix', regex=False)
-    # 2
-    gml.loc[gml.WordOrtho=='Haendchenhalten', 'MorCat'] = gml.loc[gml.WordOrtho=='Haendchenhalten', 'MorCat'].str.replace('interfix', 'suffix', regex=False)
-    # 3
-    gml.loc[gml.MorPoS.str.contains('[BC]\|B\.[BP]', regex=True), 'MorCat'] = gml.loc[gml.MorPoS.str.contains('[BC]\|B\.[BP]', regex=True), 'MorCat'].str.replace('stem # interfix # stem', 'stem # (ifix) # stem', regex=False)
-    # 4
-    gml.loc[gml.WordOrtho=='Zurueckbehaltungsrecht', 'MorCat'] = gml.loc[gml.WordOrtho=='Zurueckbehaltungsrecht', 'MorCat'].str.replace('interfix', 'suffix', regex=False).str.replace('(ifix)','interfix', regex=False)
-    # 5
-    gml.loc[gml.WordOrtho.isin(pd.Series(['einverleiben', 'Einverleibung'])), 'MorCat'] = gml.loc[gml.WordOrtho.isin(pd.Series(['einverleiben', 'Einverleibung'])), 'MorCat'].str.replace('interfix', 'prefix', regex=False)
-    # 6
-    gml.loc[gml.MorOrtho.str.contains('# t # (?:wegen|woll|halb|gross)', regex=True),'MorCat'] = gml.loc[gml.MorOrtho.str.contains('# t # (?:wegen|woll|halb|gross)', regex=True),'MorCat'].str.replace('interfix', 'suffix', regex=False)
     return gml
 
 @measure_time
@@ -233,7 +260,7 @@ def add_IfixOrtho (gml):
 
 @measure_time
 def add_IfixPhono(gml):
-    o2p = {'a':'&', 'e':'@', 'el':'@l', 'en':'@n', 'ens':'@ns', 'er':'@r', 'es':'@s', 'i':'i', 'ien':'i@n', 'n':'n', 'ns':'ns', 'o':'o', 'r':'r', 's':'s'}
+    o2p = {'a':'&', 'e':'@', 'el':'@l', 'en':'@n', 'ens':'@ns', 'er':'@r', 'es':'@s', 'i':'i', 'ien':'i@n', 'n':'n', 'ns':'ns', 'o':'o', 'r':'r', 's':'s', 't':'t'}
     o2p = pd.DataFrame([ (i,j) for i,j in o2p.items() ]).rename(columns={0:'IfixOrtho', 1:'IfixPhono'})
     gml = gml.merge(o2p, on='IfixOrtho', how='left')
     assert set(gml.loc[gml.IfixPhono.isna(),'IfixOrtho'])=={''}
@@ -242,13 +269,116 @@ def add_IfixPhono(gml):
 
 @measure_time
 def add_LeftOrtho (gml):
-    gml.loc[gml.IfixInd!=-1, 'LeftOrtho']  = gml.loc[gml.IfixInd!=-1,:].apply(lambda x: ''.join(x.MorOrtho.split(' # ')[:x.IfixInd]), axis=1)
+    gml.loc[gml.IfixInd!=-1, 'LeftOrtho']  = gml.loc[gml.IfixInd!=-1,:].apply(lambda x: ''.join(x.MorOrtho.split(' # ')[:x.IfixInd]), axis=1).str.lower()
+    assert ((gml.IsCompound) & (gml.LeftOrtho=='')).sum() == 0
+    assert gml.LeftOrtho.str.contains('[A-Z]', regex=True).sum() == 0
     return gml
 
 @measure_time
 def add_RightOrtho (gml):
-    gml.loc[gml.IfixInd!=-1, 'RightOrtho'] = gml.loc[gml.IfixInd!=-1,:].apply(lambda x: ''.join(x.MorOrtho.split(' # ')[(x.IfixInd+1):]), axis=1)
+    gml.loc[gml.IfixInd!=-1, 'RightOrtho'] = gml.loc[gml.IfixInd!=-1,:].apply(lambda x: ''.join(x.MorOrtho.split(' # ')[(x.IfixInd+1):]), axis=1).str.lower()
+    assert ((gml.IsCompound) & (gml.RightOrtho=='')).sum() == 0
+    assert gml.RightOrtho.str.contains('[A-Z]', regex=True).sum() == 0
     return gml
+
+@measure_time
+def limit_to_compounds (gml):
+    gml = gml.loc[gml.IsCompound,:].reset_index(drop=True)
+    return gml
+
+@measure_time
+def add_inflected_forms (gml):
+    gmw = init_gmw()
+    gml = gml.merge(gmw, on='IdNumLemma', how='left')
+    gml['IsLemma'] = gml.WordOrtho == gml.WordOrthoInfl
+    return gml
+
+@measure_time
+def add_ParaTypeInfl (gml):
+    gml = add_ParaProb(gml, 'type',  'inflected')
+    return gml
+
+@measure_time
+def add_ParaTypeLemma (gml):
+    gml = add_ParaProb(gml, 'type',  'lemma')
+    return gml
+
+@measure_time
+def add_ParaTokenInfl (gml):
+    gml = add_ParaProb(gml, 'token',  'inflected')
+    return gml
+
+@measure_time
+def add_ParaTokenLemma (gml):
+    gml = add_ParaProb(gml, 'token',  'lemma')
+    return gml
+
+def add_ParaProb (gml, type_or_token=('type','token'), infl_or_lemma=('inflected','lemma')):
+    def normalize_names (func):
+        def wrapper(*args, **kwargs):
+            rtn = func(*args, **kwargs)
+            rtn.name='ParaProb'
+            rtn.index.name='IfixOrtho'
+            return rtn
+        return wrapper
+    @normalize_names
+    def calc_ParaProbType (grp):
+        par = grp.IfixOrtho.value_counts() / grp.IfixOrtho.value_counts().sum()
+        return par
+    @normalize_names
+    def calc_ParaProbToken (grp):
+        par = grp.groupby('IfixOrtho')['WordFreq'].apply(lambda x: (x+1).sum()) / grp.WordFreq.apply(lambda x: x+1).sum()
+        return par
+    assert type_or_token.lower() in ['type', 'token'], '"type_or_token" must be "type" or "token".'
+    assert infl_or_lemma.lower() in ['inflected', 'lemma'], '"infl_or_lemma" must be "inflected" or "lemma".'
+    par = gml    if infl_or_lemma.lower()=='inflected' else gml.loc[gml.IsLemma,:]
+    cl1 = 'Infl' if infl_or_lemma.lower()=='inflected' else 'Lemma'
+    fnc = calc_ParaProbType if type_or_token.lower()=='type' else calc_ParaProbToken
+    cl2 = 'Type' if type_or_token.lower()=='type' else 'Token'
+    par = par.groupby('LeftOrtho', group_keys=True).apply(fnc).reset_index(drop=False).rename(columns={'ParaProb':'Para{}{}'.format(cl2,cl1)})
+    gml = gml.merge(par, on=['LeftOrtho', 'IfixOrtho'], how='left')
+    return gml
+
+@measure_time
+def add_LeftEntInfl (gml):
+    gml = add_Entropy(gml, 'left', 'inflected')
+    return gml
+
+@measure_time
+def add_LeftEntLemma (gml):
+    gml = add_Entropy(gml, 'left', 'lemma')
+    return gml
+
+@measure_time
+def add_RightEntInfl (gml):
+    gml = add_Entropy(gml, 'right', 'inflected')
+    return gml
+
+@measure_time
+def add_RightEntLemma (gml):
+    gml = add_Entropy(gml, 'right', 'lemma')
+    return gml
+
+def add_Entropy (gml, left_or_right=('left','right'), infl_or_lemma=('inflected','lemma')):
+    def calc_entropy (grp):
+        freq = grp.WordFreq + 1
+        prob = freq / freq.sum()
+        ent  = -(prob * np.log2(prob)).sum()
+        return ent
+    assert left_or_right.lower() in ['left', 'right'], '"left_or_right" must be "left" or "right".'
+    assert infl_or_lemma.lower() in ['inflected', 'lemma'], '"infl_or_lemma" must be "inflected" or "lemma".'
+    ent = gml    if infl_or_lemma.lower()=='inflected' else gml.loc[gml.IsLemma,:]
+    cl1 = 'Infl' if infl_or_lemma.lower()=='inflected' else 'Lemma'
+    pos = 'LeftOrtho' if left_or_right.lower()=='left' else 'RightOrtho'
+    cl2 = 'Left'      if left_or_right.lower()=='left' else 'Right'
+    ent = ent.groupby(pos).apply(calc_entropy).reset_index(drop=False).rename(columns={0:'{}Ent{}'.format(cl2,cl1)})
+    gml = gml.merge(ent, on=pos, how='left')
+    return gml
+
+def init_gmw ():
+    gmw = read_clx('gmw', cols=['Word','IdNumLemma','Mann']).rename(columns={'Word':'WordOrthoInfl', 'Mann':'WordFreq'}).drop_duplicates().reset_index(drop=True)
+    gmw = concatenate_separable_verbs(gmw, cols=['WordOrthoInfl'])
+    return gmw
 
 @measure_time
 def init_gpw ():
@@ -266,11 +396,13 @@ def format_WordPhono (gpw):
     gpw['WordPhono'] = gpw.WordPhono.str.replace("[\\-\\']","",regex=True)
     return gpw
 
-def concatenate_separable_verbs (dat):
-    dat['WordOrtho'] = dat.WordOrtho + ' '
-    dat['WordOrtho'] = dat.WordOrtho.str.split(' ').apply(lambda x: x[1] + x[0])
-    dat['WordPhono'] = dat.WordPhono + ' '
-    dat['WordPhono'] = dat.WordPhono.str.split(' ').apply(lambda x: x[1] + x[0])
+def concatenate_separable_verbs (dat, cols=['WordOrtho', 'WordPhono']):
+    if isinstance(cols, str):
+        cols = [cols]
+    for i in cols:
+        dat[i] = dat[i] + ' '
+        dat[i] = dat[i].str.split(' ').apply(lambda x: x[1] + x[0])
+        assert dat[i].str.contains(' ').sum()==0
     return dat
 
 def lower_WordOrtho(gpw):

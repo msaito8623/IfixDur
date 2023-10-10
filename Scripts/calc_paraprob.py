@@ -9,30 +9,35 @@ gml = add_MorOrtho(gml)
 gml = add_MorPoS(gml)
 gml = fix_ambiguous_interfixes(gml)
 gml = add_MorCat(gml)
-gml = add_LeftOrtho_IfixOrtho_RightOrtho_forNullInterfixCompounds(gml)
 gml = fix_MorCat(gml)
+gml = add_LeftOrtho_IfixOrtho_RightOrtho_forNullInterfixCompounds(gml)
 gml = add_IsCompound(gml)
 gml = add_IfixInd(gml)
 gml = add_IfixOrtho(gml)
 gml = add_IfixPhono(gml)
 gml = add_LeftOrtho(gml)
 gml = add_RightOrtho(gml)
+gml = limit_to_compounds(gml)
+gml = add_inflected_forms(gml)
+gml = add_ParaTypeInfl(gml)
+gml = add_ParaTypeLemma(gml)
+gml = add_ParaTokenInfl(gml)
+gml = add_ParaTokenLemma(gml)
+gml = add_LeftEntInfl(gml)
+gml = add_LeftEntLemma(gml)
+gml = add_RightEntInfl(gml)
+gml = add_RightEntLemma(gml)
+
+
+
+### BELOW IN PROGRESS ###
+
+
+### Phono ###
 gpw = init_gpw()
 gml = add_WordPhono(gml, gpw)
 gml = add_LeftPhono(gml, gpw)
 gml = add_RightPhono(gml, gpw)
-
-
-
-pos0 = gml.InKEC
-pos1 = gml.IfixInd!=-1
-pos  = pos0 & pos1
-n1 =sorted(list(set(gml.loc[pos,'LeftOrtho'].to_list())))
-for i in n1:
-    print(gml.loc[gml.WordOrtho.str.contains('^{}'.format(i), regex=True), ['WordOrtho','LeftOrtho','IfixOrtho','RightOrtho']])
-    input('Enter')
-
-
 
 def infer_LeftPhono (x):
     if x.LeftPhono=='NotFound':
